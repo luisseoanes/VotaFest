@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -305,6 +305,6 @@ if os.path.isdir(_static_dir):
     app.mount("/assets", StaticFiles(directory=os.path.join(_static_dir, "assets")), name="assets")
 
     @app.get("/{full_path:path}")
-    def serve_spa(_full_path: str):
+    def serve_spa(request: Request):
         index = os.path.join(_static_dir, "index.html")
         return FileResponse(index)
