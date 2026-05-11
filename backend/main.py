@@ -299,12 +299,16 @@ def get_results(question_id: int, db: Session = Depends(get_db)):
 app.include_router(api)
 
 # ── Serve React static build ──
-# In production the frontend is built into backend/static/
 _static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.isdir(_static_dir):
+    # Serve /assets/** (JS, CSS bundles)
     app.mount("/assets", StaticFiles(directory=os.path.join(_static_dir, "assets")), name="assets")
 
     @app.get("/{full_path:path}")
     def serve_spa(request: Request):
-        index = os.path.join(_static_dir, "index.html")
-        return FileResponse(index)
+        # Serve any root-level static file (favicon.svg, robots.txt, etc.) if it exists
+        candidate = os.path.join(_static_dir, request.path_params["full_path"])
+        if os.path.isfile(candidate):
+            return FileResponse(candidate)
+        # Fall back to index.html for all SPA routes
+        return FileResponse(os.path.join(_static_dir, "index.html"))
