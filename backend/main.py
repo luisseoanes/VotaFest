@@ -1,29 +1,38 @@
+import os
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey, DateTime
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-import uuid
 
-DATABASE_URL = "sqlite:///./votafest.db"
+# ── Database path: use /data volume in production, local file otherwise ──
+DB_PATH = os.environ.get("DB_PATH", "./votafest.db")
+DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+# Ensure the directory for the DB exists (for volume mounts like /data)
+db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+os.makedirs(db_dir, exist_ok=True)
+
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-SECRET_KEY = "votafest-upb-2026-secret-key-xK9mP2qR"
+SECRET_KEY = os.environ.get("SECRET_KEY", "votafest-upb-2026-secret-key-xK9mP2qR")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
 
 
+# ── Models ──
 class Admin(Base):
     __tablename__ = "admins"
     id = Column(Integer, primary_key=True)
@@ -44,7 +53,7 @@ class Option(Base):
     __tablename__ = "options"
     id = Column(Integer, primary_key=True)
     text = Column(String, nullable=False)
-    color = Column(String, default="teal")  # verde, rojo, amarillo, teal, rosa, naranja
+    color = Column(String, default="teal")
     question_id = Column(Integer, ForeignKey("questions.id"))
     question = relationship("Question", back_populates="options")
     votes = relationship("Vote", back_populates="option")
@@ -72,6 +81,7 @@ app.add_middleware(
 )
 
 
+# ── Pydantic schemas ──
 class OptionCreate(BaseModel):
     text: str
     color: str = "teal"
@@ -113,6 +123,7 @@ class Token(BaseModel):
     token_type: str
 
 
+# ── Helpers ──
 def get_db():
     db = SessionLocal()
     try:
@@ -156,8 +167,7 @@ def get_current_admin(token: str = Depends(oauth2_scheme), db: Session = Depends
 
 
 def build_question_response(q) -> QuestionResponse:
-    options = []
-    total = 0
+    options, total = [], 0
     for opt in q.options:
         count = len(opt.votes)
         total += count
@@ -176,7 +186,18 @@ def init_db():
 init_db()
 
 
-@app.post("/token", response_model=Token)
+# ── API routes (all under /api prefix) ──
+from fastapi import APIRouter
+
+api = APIRouter(prefix="/api")
+
+
+@api.get("/health")
+def health():
+    return {"status": "ok", "db": DB_PATH}
+
+
+@api.post("/token", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     admin = db.query(Admin).filter(Admin.username == form_data.username).first()
     if not admin or not verify_password(form_data.password, admin.hashed_password):
@@ -184,15 +205,13 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     return {"access_token": create_access_token({"sub": admin.username}), "token_type": "bearer"}
 
 
-@app.get("/questions", response_model=List[QuestionResponse])
+@api.get("/questions", response_model=List[QuestionResponse])
 def get_questions(db: Session = Depends(get_db), _: Admin = Depends(get_current_admin)):
     return [build_question_response(q) for q in db.query(Question).order_by(Question.created_at.desc()).all()]
 
 
-@app.post("/questions", response_model=QuestionResponse)
-def create_question(
-    question: QuestionCreate, db: Session = Depends(get_db), _: Admin = Depends(get_current_admin)
-):
+@api.post("/questions", response_model=QuestionResponse)
+def create_question(question: QuestionCreate, db: Session = Depends(get_db), _: Admin = Depends(get_current_admin)):
     db_q = Question(text=question.text)
     db.add(db_q)
     db.flush()
@@ -203,7 +222,7 @@ def create_question(
     return build_question_response(db_q)
 
 
-@app.delete("/questions/{question_id}")
+@api.delete("/questions/{question_id}")
 def delete_question(question_id: int, db: Session = Depends(get_db), _: Admin = Depends(get_current_admin)):
     q = db.query(Question).filter(Question.id == question_id).first()
     if not q:
@@ -213,7 +232,7 @@ def delete_question(question_id: int, db: Session = Depends(get_db), _: Admin = 
     return {"ok": True}
 
 
-@app.post("/questions/{question_id}/activate")
+@api.post("/questions/{question_id}/activate")
 def activate_question(question_id: int, db: Session = Depends(get_db), _: Admin = Depends(get_current_admin)):
     db.query(Question).update({"is_active": False})
     q = db.query(Question).filter(Question.id == question_id).first()
@@ -224,20 +243,19 @@ def activate_question(question_id: int, db: Session = Depends(get_db), _: Admin 
     return {"ok": True}
 
 
-@app.post("/questions/deactivate-all")
+@api.post("/questions/deactivate-all")
 def deactivate_all(db: Session = Depends(get_db), _: Admin = Depends(get_current_admin)):
     db.query(Question).update({"is_active": False})
     db.commit()
     return {"ok": True}
 
 
-@app.get("/active-question")
+@api.get("/active-question")
 def get_active_question(db: Session = Depends(get_db)):
     q = db.query(Question).filter(Question.is_active == True).first()
     if not q:
         return None
-    options = []
-    total = 0
+    options, total = [], 0
     for opt in q.options:
         count = len(opt.votes)
         total += count
@@ -245,30 +263,24 @@ def get_active_question(db: Session = Depends(get_db)):
     return {"id": q.id, "text": q.text, "is_active": True, "options": options, "total_votes": total}
 
 
-@app.post("/vote")
+@api.post("/vote")
 def cast_vote(vote: VoteCreate, db: Session = Depends(get_db)):
     option = db.query(Option).filter(Option.id == vote.option_id).first()
     if not option:
         raise HTTPException(status_code=404, detail="Opción no encontrada")
-
     question = db.query(Question).filter(Question.id == option.question_id).first()
     if not question or not question.is_active:
         raise HTTPException(status_code=400, detail="La pregunta no está activa actualmente")
-
     existing = (
-        db.query(Vote)
-        .join(Option)
+        db.query(Vote).join(Option)
         .filter(Option.question_id == option.question_id, Vote.voter_id == vote.voter_id)
         .first()
     )
     if existing:
         raise HTTPException(status_code=400, detail="Ya registraste tu voto en esta pregunta")
-
     db.add(Vote(option_id=vote.option_id, voter_id=vote.voter_id))
     db.commit()
-
-    options = []
-    total = 0
+    options, total = [], 0
     for opt in question.options:
         count = len(opt.votes)
         total += count
@@ -276,9 +288,23 @@ def cast_vote(vote: VoteCreate, db: Session = Depends(get_db)):
     return {"id": question.id, "text": question.text, "options": options, "total_votes": total}
 
 
-@app.get("/results/{question_id}")
+@api.get("/results/{question_id}")
 def get_results(question_id: int, db: Session = Depends(get_db)):
     q = db.query(Question).filter(Question.id == question_id).first()
     if not q:
         raise HTTPException(status_code=404, detail="Pregunta no encontrada")
     return build_question_response(q)
+
+
+app.include_router(api)
+
+# ── Serve React static build ──
+# In production the frontend is built into backend/static/
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/assets", StaticFiles(directory=os.path.join(_static_dir, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    def serve_spa(_full_path: str):
+        index = os.path.join(_static_dir, "index.html")
+        return FileResponse(index)
