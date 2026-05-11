@@ -50,7 +50,7 @@ export default function AdminLogin() {
               type="text"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              placeholder="admin"
+              placeholder="Usuario"
               autoComplete="username"
               required
             />
@@ -84,9 +84,6 @@ export default function AdminLogin() {
           </Link>
         </div>
 
-        <div style={{ marginTop: '1rem', padding: '0.8rem', background: '#f5f5f5', borderRadius: '0.7rem', fontSize: '0.75rem', color: '#888', textAlign: 'center' }}>
-          Usuario: <strong>admin</strong> · Contraseña: <strong>votafest2026</strong>
-        </div>
       </div>
     </div>
   )

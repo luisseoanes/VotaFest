@@ -85,6 +85,55 @@ function MiniResults({ options, total }) {
   )
 }
 
+const BAR_COLOR_MAP = {
+  verde: '#2ECC40',
+  rojo: '#FF4136',
+  amarillo: '#FEB402',
+}
+
+function BarChart({ options, total }) {
+  const maxVotes = Math.max(...options.map(o => o.vote_count), 1)
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.6rem', height: '120px', padding: '0 0.2rem', marginTop: '0.6rem' }}>
+      {options.map(opt => {
+        const pct = total > 0 ? Math.round((opt.vote_count / total) * 100) : 0
+        const barH = Math.round((opt.vote_count / maxVotes) * 100)
+        const c = COLOR_OPTIONS.find(o => o.value === opt.color)
+        const barColor = BAR_COLOR_MAP[opt.color] || c?.hex || '#ccc'
+        return (
+          <div key={opt.id} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#555', marginBottom: '2px' }}>{pct}%</span>
+            <div
+              style={{
+                width: '100%',
+                height: `${barH}%`,
+                minHeight: opt.vote_count > 0 ? '4px' : '2px',
+                background: barColor,
+                borderRadius: '4px 4px 0 0',
+                transition: 'height 0.4s ease',
+              }}
+            />
+            <span style={{
+              fontSize: '0.65rem',
+              fontWeight: 600,
+              color: '#444',
+              marginTop: '4px',
+              textAlign: 'center',
+              lineHeight: 1.2,
+              maxWidth: '100%',
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+            }}>{opt.text}</span>
+            <span style={{ fontSize: '0.6rem', color: '#999' }}>{opt.vote_count} votos</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate()
   const [questions, setQuestions] = useState([])
@@ -273,6 +322,7 @@ export default function AdminDashboard() {
               </button>
             </div>
             <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--negro)', marginBottom: '0.8rem' }}>{activeQ.text}</div>
+            <BarChart options={activeQ.options} total={activeQ.total_votes} />
             <MiniResults options={activeQ.options} total={activeQ.total_votes} />
             <div style={{ fontSize: '0.75rem', color: 'var(--gris)', marginTop: '0.4rem' }}>{activeQ.total_votes} votos · Se actualiza en tiempo real</div>
           </div>
@@ -417,6 +467,7 @@ export default function AdminDashboard() {
                     {q.is_active && <span className="active-badge">Activa</span>}
                   </div>
 
+                  <BarChart options={q.options} total={q.total_votes} />
                   <MiniResults options={q.options} total={q.total_votes} />
                   <div style={{ fontSize: '0.72rem', color: 'var(--gris)' }}>{q.total_votes} votos</div>
 
